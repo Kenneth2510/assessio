@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Quiz;
+use App\Models\SkillTags;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -51,7 +52,9 @@ class QuizController extends Controller
      */
     public function create()
     {
-        return Inertia::render('quiz-management/actions/create');
+        return Inertia::render('quiz-management/actions/create', [
+            'skillTag' => SkillTags::select('id', 'tag_title')->get(),
+        ]);
     }
 
     /**
@@ -111,9 +114,12 @@ class QuizController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(Quiz $quiz)
+    public function show(Quiz $quiz_management)
     {
-        //
+        $quiz = Quiz::with('creator')->where('id', $quiz_management->id)->first();
+        return Inertia::render('quiz-management/actions/view', [
+            'quiz' => $quiz,
+        ]);
     }
 
     /**
