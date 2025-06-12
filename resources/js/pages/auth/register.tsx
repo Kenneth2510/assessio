@@ -8,10 +8,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AuthLayout from '@/layouts/auth-layout';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 type RegisterForm = {
     name: string;
     email: string;
+    role: string;
     password: string;
     password_confirmation: string;
 };
@@ -20,6 +22,7 @@ export default function Register() {
     const { data, setData, post, processing, errors, reset } = useForm<Required<RegisterForm>>({
         name: '',
         email: '',
+        role: '',
         password: '',
         password_confirmation: '',
     });
@@ -69,6 +72,20 @@ export default function Register() {
                         <InputError message={errors.email} />
                     </div>
 
+                    <div className="flex flex-col space-y-1.5">
+                        <Label htmlFor="status">Role</Label>
+                        <RadioGroup defaultValue={data.role} onValueChange={(value) => setData('role', value)} className="flex">
+                            <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="learner" id="learner" />
+                                <Label htmlFor="learner">Learner</Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="instructor" id="instructor" />
+                                <Label htmlFor="instructor">Instructor</Label>
+                            </div>
+                        </RadioGroup>
+                    </div>
+
                     <div className="grid gap-2">
                         <Label htmlFor="password">Password</Label>
                         <Input
@@ -101,7 +118,7 @@ export default function Register() {
                         <InputError message={errors.password_confirmation} />
                     </div>
 
-                    <Button type="submit" className="mt-2 w-full" tabIndex={5} disabled={processing}>
+                    <Button type="submit" className="mt-2 w-full bg-blue-500 hover:bg-blue-700" tabIndex={5} disabled={processing}>
                         {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
                         Create account
                     </Button>
