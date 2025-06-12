@@ -28,6 +28,8 @@ export default function DeleteInstructor({ instructor }: DeleteInstructorProps) 
     function handleInstructorDelete(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
 
+        setOpen(false);
+
         MySwal.fire({
             title: <p>Deleting {instructor.name}...</p>,
             allowOutsideClick: false,
@@ -45,7 +47,6 @@ export default function DeleteInstructor({ instructor }: DeleteInstructorProps) 
                     timer: 1500,
                     showConfirmButton: false,
                 });
-                setOpen(false); // ✅ Close the dialog on success
             },
             onError: () => {
                 MySwal.fire({

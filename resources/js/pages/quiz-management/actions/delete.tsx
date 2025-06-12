@@ -28,6 +28,8 @@ export default function DeleteQuiz({ quiz }: DeleteQuizProps) {
     function handleQuizDelete(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
 
+        setOpen(false);
+
         MySwal.fire({
             title: <p>Deleting {quiz.title}...</p>,
             allowOutsideClick: false,
@@ -45,7 +47,6 @@ export default function DeleteQuiz({ quiz }: DeleteQuizProps) {
                     timer: 1500,
                     showConfirmButton: false,
                 });
-                setOpen(false); // ✅ Close the dialog on success
             },
             onError: () => {
                 MySwal.fire({
@@ -59,11 +60,9 @@ export default function DeleteQuiz({ quiz }: DeleteQuizProps) {
 
     return (
         <AlertDialog open={open} onOpenChange={setOpen}>
-            <AlertDialogTrigger asChild>
-                <button className="flex w-full items-center px-2 py-1.5 text-sm hover:bg-muted focus:outline-none">
-                    <Trash2 className="text-red-500" />
-                    <span className="mx-3">Delete</span>
-                </button>
+            <AlertDialogTrigger className="flex w-full items-center px-2 py-1.5 text-sm hover:bg-muted focus:outline-none">
+                <Trash2 className="text-red-500" />
+                <span className="mx-3">Delete</span>
             </AlertDialogTrigger>
             <AlertDialogContent>
                 <AlertDialogHeader>

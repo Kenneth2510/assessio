@@ -48,6 +48,15 @@ export function AppSidebar() {
                   },
               ]
             : []),
+        ...(canAny(['quiz-participation.index'])
+            ? [
+                  {
+                      title: 'Quizzes',
+                      href: '/quiz-access',
+                      icon: SquarePen,
+                  },
+              ]
+            : []),
     ];
 
     return (

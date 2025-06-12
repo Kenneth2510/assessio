@@ -1,7 +1,7 @@
 'use client';
 
 import { ColumnDef } from '@tanstack/react-table';
-import { ArrowUpDown, MoreHorizontal, UserCog } from 'lucide-react';
+import { ArrowUpDown, Eye, MoreHorizontal, Pen, UserCog } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -152,8 +152,14 @@ export const columns: ColumnDef<Quiz>[] = [
                         <DropdownMenuSeparator />
                         <DropdownMenuItem asChild>
                             <Link href={route('quiz-management.edit', quiz.id)} className="flex">
-                                <UserCog />
+                                <Pen />
                                 <span className="mx-3">Edit</span>
+                            </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                            <Link href={route('quiz-management.show', quiz.id)} className="flex">
+                                <Eye />
+                                <span className="mx-3">View</span>
                             </Link>
                         </DropdownMenuItem>
                         <DropdownMenuItem asChild>

@@ -22,4 +22,8 @@ class Quiz extends Model
     public function skillTags() {
         return $this->belongsToMany(SkillTags::class, 'quiz_tags');
     }
+
+    public function questions() {
+        return $this->hasMany(QuizQuestion::class);
+    }
 }

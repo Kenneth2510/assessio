@@ -1,8 +1,17 @@
-import { SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from '@/components/ui/sidebar';
+import {
+    SidebarGroup,
+    SidebarGroupLabel,
+    SidebarMenu,
+    SidebarMenuButton,
+    SidebarMenuItem,
+    SidebarMenuSub,
+    SidebarMenuSubButton,
+    SidebarMenuSubItem,
+} from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { ChevronRight } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 
 export function NavMain({ items = [] }: { items: NavItem[] }) {
     const page = usePage();
@@ -19,8 +28,8 @@ export function NavMain({ items = [] }: { items: NavItem[] }) {
                                     className={[
                                         'h-10',
                                         item.href === page.url
-                                            ? 'bg-gradient-to-r from-blue-950 to-blue-800 text-white hover:text-white'
-                                            : 'bg-gradient-to-r transition duration-300 hover:from-blue-950 hover:to-blue-800 hover:text-white',
+                                            ? 'bg-blue-500 hover:bg-blue-500 text-white hover:text-white'
+                                            : 'transition duration-300 hover:bg-blue-500 hover:!text-white',
                                     ]}
                                     asChild
                                     tooltip={{ children: item.title }}
@@ -41,8 +50,8 @@ export function NavMain({ items = [] }: { items: NavItem[] }) {
                                     className={[
                                         'h-10',
                                         item.href === page.url
-                                            ? 'bg-gradient-to-r from-blue-950 to-blue-800 text-white hover:text-white'
-                                            : 'bg-gradient-to-r transition duration-300 hover:from-blue-950 hover:to-blue-800 hover:!text-white',
+                                            ? 'bg-blue-500 hover:bg-blue-500 text-white hover:text-white'
+                                            : 'transition duration-300 hover:bg-blue-500 hover:!text-white',
                                     ]}
                                 >
                                     <SidebarMenuButton tooltip={item.title}>
@@ -59,8 +68,8 @@ export function NavMain({ items = [] }: { items: NavItem[] }) {
                                                     asChild
                                                     className={
                                                         subItem.href === page.url
-                                                            ? 'bg-gradient-to-r from-blue-950 to-blue-800 text-white hover:text-white'
-                                                            : 'bg-gradient-to-r transition duration-200 hover:from-blue-950 hover:to-blue-800 hover:text-white'
+                                                            ? 'bg-blue-500 hover:bg-blue-500 text-white hover:text-white'
+                                                            : 'transition duration-300 hover:bg-blue-500 hover:!text-white'
                                                     }
                                                 >
                                                     <Link href={subItem.href} prefetch>
