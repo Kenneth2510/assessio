@@ -88,7 +88,6 @@ class UserSeeder extends Seeder
 
         $learnerRole->givePermissionTo([
             'learner_dashboard.index',
-            'quizzes.index',
             'quiz-participation.index',
             'quiz-participation.create',
             'quiz-participation.edit',
