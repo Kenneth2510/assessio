@@ -16,13 +16,20 @@ import {
     CheckCircle,
     BarChart3,
     FileText,
-    Star
+    Star,
+    Tag
 } from 'lucide-react';
 
 export type User = {
     id: string;
     name: string;
     email: string;
+};
+
+export type SkillTag = {
+    id: number;
+    tag_title: string;
+    description: string;
 };
 
 export type Quiz = {
@@ -36,6 +43,7 @@ export type Quiz = {
     updated_at: string;
     difficulty?: string;
     question_count?: number;
+    skill_tags: SkillTag[];
 };
 
 // Enhanced attempt data
@@ -222,6 +230,53 @@ export default function ViewQuiz({
                                     <h3 className="font-medium text-blue-700 mb-2">Description</h3>
                                     <p className="text-sm text-gray-700 leading-relaxed">{quiz.description}</p>
                                 </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Skill Tags Card */}
+                        <Card className="rounded-2xl border border-blue-200 bg-white shadow-sm">
+                            <CardContent className="p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Tag className="h-5 w-5 text-blue-700" />
+                                    <h2 className="text-xl font-semibold text-blue-700">Skills Assessed</h2>
+                                </div>
+                                <Separator className="mb-4" />
+
+                                {quiz.skill_tags && quiz.skill_tags.length > 0 ? (
+                                    <div className="space-y-4">
+                                        <p className="text-sm text-muted-foreground">
+                                            This quiz will help you practice and assess the following skills:
+                                        </p>
+                                        <div className="grid grid-cols-3 gap-3">
+                                            {quiz.skill_tags.map((tag) => (
+                                                <div
+                                                    key={tag.id}
+                                                    className="flex flex-col gap-2 rounded-lg border border-blue-100 bg-blue-50 p-3"
+                                                >
+                                                    <Badge
+                                                        variant="secondary"
+                                                        className="w-fit bg-blue-100 text-blue-800 hover:bg-blue-200"
+                                                    >
+                                                        {tag.tag_title}
+                                                    </Badge>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {tag.description}
+                                                    </p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-8">
+                                        <Tag className="h-12 w-12 text-muted-foreground/50 mx-auto mb-3" />
+                                        <p className="text-sm text-muted-foreground">
+                                            No specific skills tagged for this quiz
+                                        </p>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            This quiz covers general knowledge in the subject area
+                                        </p>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
 

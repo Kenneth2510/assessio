@@ -19,6 +19,9 @@ return new class extends Migration
             $table->foreignIdFor(Quiz::class)->constrained()->onCascadeDelete();
             $table->integer('total_score')->default(0);
             $table->integer('xp_earned')->default(0);
+            $table->integer('time_taken')->default(0);
+            $table->string('status')->default('completed');
+            $table->timestamp('completed_at')->nullable();
             $table->timestamps();
         });
     }

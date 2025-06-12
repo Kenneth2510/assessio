@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class SkillTags extends Model
 {
@@ -11,7 +12,8 @@ class SkillTags extends Model
         'description',
     ];
 
-    public function quizzes() {
-        return $this->belongsToMany(Quiz::class, 'quiz_tags');
+    public function quizzes(): BelongsToMany
+    {
+        return $this->belongsToMany(Quiz::class, 'quiz_tags', 'skill_tags_id', 'quiz_id');
     }
 }

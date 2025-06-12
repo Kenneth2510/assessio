@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 
 class QuizParticipationController extends Controller
@@ -41,9 +42,10 @@ class QuizParticipationController extends Controller
                         'id' => $question->id,
                         'question' => $question->question,
                         'question_type' => $question->question_type,
+                        'score' => $question->score ?? 1, // Default score if null
                         'choices' => $question->choices?->map(fn($c) => [
                             'choice' => $c->choice,
-                            'isCorrect' => $c->is_correct,
+                            'isCorrect' => $c->isCorrect, // Fixed: use correct field name
                         ])
                     ];
                 }),
@@ -77,6 +79,7 @@ class QuizParticipationController extends Controller
                     $fail("The $attribute must be a string or an array.");
                 }
             }],
+            'time_taken' => 'nullable|integer|min:0', // Add time_taken validation
         ]);
 
         try {
@@ -96,69 +99,113 @@ class QuizParticipationController extends Controller
                     return back()->withErrors(['quiz' => 'You have already taken this quiz.']);
                 }
 
-                // Create a new participation
+                // Initialize scoring variables
+                $totalScore = 0;
+                $correctAnswers = 0;
+                $totalQuestions = count($request->answers ?? []);
+                $questionScores = []; // Track individual question scores
+                $timeTaken = $request->time_taken ?? 0;
+
+                // Create a new participation (without total_score initially)
                 $participation = QuizParticipation::create([
                     'user_id' => $userId,
                     'quiz_id' => $request->quiz_id,
-                    'total_score' => 0, // we'll calculate below
+                    'total_score' => 0, // Will be updated after calculation
+                    'xp_earned' => 0,   // Will be updated after XP calculation
+                    'time_taken' => $timeTaken,
+                    'status' => 'completed',
+                    'completed_at' => now(),
                 ]);
 
-                $totalScore = 0;
-                $correctAnswers = 0;
-                $totalQuestions = count($request->answers);
-
-                foreach ($request->answers as $answerData) {
+                // Process each answer
+                foreach ($request->answers ?? [] as $answerData) {
                     $questionId = $answerData['question_id'];
                     $userAnswer = $answerData['answer'];
                     $userAnswerFormatted = is_array($userAnswer) ? json_encode($userAnswer) : trim($userAnswer);
 
-                    // Read-through cache for the question
+                    // Get question with caching
                     $question = Cache::remember(
                         "quiz_question_{$questionId}",
                         60,
                         fn() => QuizQuestion::with('choices')->findOrFail($questionId)
                     );
 
+                    // Ensure question has a score (default to 1 if null)
+                    $questionScore = $question->score ?? 1;
+
+                    // Evaluate the answer
                     $isCorrect = $this->evaluateAnswer($question, $userAnswer);
-                    $isCorrectInt = $isCorrect ? 1 : 0;
+                    $earnedScore = 0;
 
                     if ($isCorrect) {
-                        $totalScore += $question->score;
+                        $earnedScore = $questionScore;
+                        $totalScore += $questionScore;
                         $correctAnswers++;
                     }
 
-                    // Write-through cache for individual answer
-                    $answerPayload = [
+                    // Store question score info for debugging
+                    $questionScores[] = [
+                        'question_id' => $questionId,
+                        'possible_score' => $questionScore,
+                        'earned_score' => $earnedScore,
+                        'is_correct' => $isCorrect
+                    ];
+
+                    // Create answer record
+                    QuizParticipationAnswer::create([
                         'quiz_participation_id' => $participation->id,
                         'quiz_question_id' => $questionId,
                         'answer' => $userAnswerFormatted,
-                        'isCorrect' => $isCorrectInt,
-                    ];
+                        'isCorrect' => $isCorrect ? 1 : 0,
+                    ]);
 
-                    QuizParticipationAnswer::create($answerPayload);
-                    Cache::put("quiz_answer_participation_{$participation->id}_q_{$questionId}", $answerPayload, 60);
+                    // Cache individual answer
+                    Cache::put("quiz_answer_participation_{$participation->id}_q_{$questionId}", [
+                        'quiz_participation_id' => $participation->id,
+                        'quiz_question_id' => $questionId,
+                        'answer' => $userAnswerFormatted,
+                        'isCorrect' => $isCorrect ? 1 : 0,
+                        'earned_score' => $earnedScore,
+                    ], 60);
                 }
 
-                // Update participation with total score
-                $participation->update(['total_score' => $totalScore]);
-
-                // Calculate and award XP
+                // Calculate XP
                 $xpEarned = $this->calculateAndAwardXP($participation, $quiz, $totalScore, $correctAnswers, $totalQuestions);
 
-                // Clear relevant caches
-                Cache::put("quiz_participation_score_{$participation->id}", $totalScore, 60);
+                // Update participation with final scores
+                $participation->update([
+                    'total_score' => $totalScore,
+                    'xp_earned' => $xpEarned,
+                ]);
+
+                // Clear relevant caches to force refresh
                 Cache::forget("quiz_participation_access_user_{$userId}");
                 Cache::forget("quizzes_available_user_{$userId}");
+                Cache::put("quiz_participation_score_{$participation->id}", $totalScore, 60);
+
+                // Calculate percentage
+                $maxPossibleScore = $quiz->questions->sum(fn($q) => $q->score ?? 1);
+                $percentage = $maxPossibleScore > 0 ? round(($totalScore / $maxPossibleScore) * 100, 1) : 0;
 
                 return to_route('quiz-access.index')->with([
                     'success' => 'Quiz submitted successfully! You earned ' . $xpEarned . ' XP.',
                     'participation_id' => $participation->id,
                     'score' => $totalScore,
+                    'max_score' => $maxPossibleScore,
                     'xp_earned' => $xpEarned,
-                    'percentage' => round(($correctAnswers / $totalQuestions) * 100, 1),
+                    'percentage' => $percentage,
+                    'correct_answers' => $correctAnswers,
+                    'total_questions' => $totalQuestions,
+                    'question_scores' => $questionScores, // For debugging
                 ]);
             });
         } catch (\Exception $e) {
+            Log::error('Quiz submission error: ' . $e->getMessage(), [
+                'user_id' => Auth::id(),
+                'quiz_id' => $request->quiz_id,
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return back()->withErrors(['error' => 'An error occurred while submitting your quiz. Please try again.']);
         }
     }
@@ -168,22 +215,40 @@ class QuizParticipationController extends Controller
      */
     private function evaluateAnswer($question, $userAnswer)
     {
+        // Handle empty/null answers
+        if (
+            $userAnswer === null || $userAnswer === '' ||
+            (is_array($userAnswer) && empty($userAnswer))
+        ) {
+            return false;
+        }
+
         switch ($question->question_type) {
             case 'multiple_choice':
                 $correctChoice = $question->choices
-                    ->where('is_correct', 1)
+                    ->where('isCorrect', 1) // Fixed: use correct field name
                     ->first();
 
-                return $correctChoice && trim($correctChoice->choice) === trim($userAnswer);
+                if (!$correctChoice) {
+                    Log::warning("No correct choice found for question {$question->id}");
+                    return false;
+                }
+
+                return trim($correctChoice->choice) === trim($userAnswer);
 
             case 'checkbox':
                 $correctChoices = $question->choices
-                    ->where('is_correct', 1)
+                    ->where('isCorrect', 1) // Fixed: use correct field name
                     ->pluck('choice')
                     ->map(fn($c) => trim($c))
                     ->sort()
                     ->values()
                     ->toArray();
+
+                if (empty($correctChoices)) {
+                    Log::warning("No correct choices found for checkbox question {$question->id}");
+                    return false;
+                }
 
                 $userAnswerArray = is_array($userAnswer) ? $userAnswer : [$userAnswer];
                 $userAnswerArray = array_map('trim', $userAnswerArray);
@@ -192,16 +257,21 @@ class QuizParticipationController extends Controller
                 return $correctChoices === $userAnswerArray;
 
             case 'identification':
-                // For identification questions, you might want to implement
-                // more sophisticated matching (case-insensitive, etc.)
                 $correctAnswers = $question->choices
-                    ->where('is_correct', 1)
+                    ->where('isCorrect', 1) // Fixed: use correct field name
                     ->pluck('choice')
-                    ->map(fn($c) => strtolower(trim($c)));
+                    ->map(fn($c) => strtolower(trim($c)))
+                    ->filter(); // Remove empty values
+
+                if ($correctAnswers->isEmpty()) {
+                    Log::warning("No correct answers found for identification question {$question->id}");
+                    return false;
+                }
 
                 return $correctAnswers->contains(strtolower(trim($userAnswer)));
 
             default:
+                Log::warning("Unknown question type: {$question->question_type} for question {$question->id}");
                 return false;
         }
     }
@@ -212,6 +282,12 @@ class QuizParticipationController extends Controller
     private function calculateAndAwardXP($participation, $quiz, $totalScore, $correctAnswers, $totalQuestions)
     {
         $userId = $participation->user_id;
+
+        // Prevent division by zero
+        if ($totalQuestions == 0) {
+            return 10; // Minimum XP for participation
+        }
+
         $percentage = ($correctAnswers / $totalQuestions) * 100;
 
         // Base XP calculation
@@ -229,17 +305,17 @@ class QuizParticipationController extends Controller
         }
 
         // Quiz difficulty multiplier (based on total possible score)
+        $maxPossibleScore = $quiz->questions->sum(fn($q) => $q->score ?? 1);
         $difficultyMultiplier = 1;
-        if ($quiz->total_score >= 100) {
+        if ($maxPossibleScore >= 100) {
             $difficultyMultiplier = 1.4;
-        } elseif ($quiz->total_score >= 50) {
+        } elseif ($maxPossibleScore >= 50) {
             $difficultyMultiplier = 1.2;
         }
 
         // Time-based bonus (if quiz has time limit and completed quickly)
         $timeBonusXP = 0;
         if ($quiz->total_time && $percentage >= 60) {
-            // Award bonus XP for completing within 75% of time limit with decent score
             $timeBonusXP = 25;
         }
 
@@ -257,14 +333,14 @@ class QuizParticipationController extends Controller
                 'Completed quiz "%s" - Score: %d/%d (%.1f%%) - %d/%d correct answers',
                 $quiz->title,
                 $totalScore,
-                $quiz->total_score,
+                $maxPossibleScore,
                 $percentage,
                 $correctAnswers,
                 $totalQuestions
             ),
         ]);
 
-        // Update user's total XP (assuming you have an xp field in users table)
+        // Update user's total XP
         $user = Auth::user();
         if ($user && isset($user->xp)) {
             $user->increment('xp', $finalXP);
@@ -274,11 +350,17 @@ class QuizParticipationController extends Controller
     }
 
     /**
-     * Get XP breakdown for a quiz (helper method for displaying XP calculation details)
+     * Get XP breakdown for a quiz
      */
     public function getXpBreakdown($quizId, $totalScore, $correctAnswers, $totalQuestions)
     {
-        $quiz = Quiz::findOrFail($quizId);
+        $quiz = Quiz::with('questions')->findOrFail($quizId);
+        $maxPossibleScore = $quiz->questions->sum(fn($q) => $q->score ?? 1);
+
+        if ($totalQuestions == 0) {
+            return ['error' => 'No questions found'];
+        }
+
         $percentage = ($correctAnswers / $totalQuestions) * 100;
 
         $breakdown = [
@@ -287,7 +369,9 @@ class QuizParticipationController extends Controller
             'performance_multiplier' => 1,
             'difficulty_multiplier' => 1,
             'time_bonus' => 0,
-            'total_xp' => 0
+            'total_xp' => 0,
+            'max_possible_score' => $maxPossibleScore,
+            'percentage' => round($percentage, 1),
         ];
 
         // Performance multiplier
@@ -303,10 +387,10 @@ class QuizParticipationController extends Controller
         }
 
         // Difficulty multiplier
-        if ($quiz->total_score >= 100) {
+        if ($maxPossibleScore >= 100) {
             $breakdown['difficulty_multiplier'] = 1.4;
             $breakdown['difficulty_note'] = 'High difficulty bonus';
-        } elseif ($quiz->total_score >= 50) {
+        } elseif ($maxPossibleScore >= 50) {
             $breakdown['difficulty_multiplier'] = 1.2;
             $breakdown['difficulty_note'] = 'Medium difficulty bonus';
         }
@@ -319,9 +403,9 @@ class QuizParticipationController extends Controller
 
         $breakdown['total_xp'] = max(10, floor(
             ($breakdown['base_xp'] + $breakdown['score_xp']) *
-            $breakdown['performance_multiplier'] *
-            $breakdown['difficulty_multiplier'] +
-            $breakdown['time_bonus']
+                $breakdown['performance_multiplier'] *
+                $breakdown['difficulty_multiplier'] +
+                $breakdown['time_bonus']
         ));
 
         return $breakdown;

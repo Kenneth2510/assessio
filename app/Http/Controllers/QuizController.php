@@ -20,7 +20,7 @@ class QuizController extends Controller
         $cacheKey = $user->hasRole('admin') ? 'quizzes_admin' : 'quizzes_instructor_' . $user->id;
 
         $quizzes = Cache::remember($cacheKey, 600, function () use ($user) {
-            $query = Quiz::with('creator');
+            $query = Quiz::with(['creator', 'skillTags']);
 
             if ($user->hasRole('instructor')) {
                 $query->where('user_id', $user->id);
@@ -36,6 +36,11 @@ class QuizController extends Controller
                     'mode' => $quiz->mode,
                     'total_score' => $quiz->total_score,
                     'total_time' => $quiz->total_time,
+                    'skill_tags' => $quiz->skillTags->map(fn($tag) => [
+                        'id' => $tag->id,
+                        'tag_title' => $tag->tag_title,
+                        'description' => $tag->description
+                    ]),
                     'created_at' => $quiz->created_at,
                     'updated_at' => $quiz->updated_at,
                 ];
@@ -53,7 +58,7 @@ class QuizController extends Controller
     public function create()
     {
         return Inertia::render('quiz-management/actions/create', [
-            'skillTag' => SkillTags::select('id', 'tag_title')->get(),
+            'skillTags' => SkillTags::select('id', 'tag_title', 'description')->get(),
         ]);
     }
 
@@ -64,9 +69,11 @@ class QuizController extends Controller
     {
         $user = Auth::user();
         $validated = $request->validate([
-            'title' => 'required',
-            'description' => 'required',
-            'mode' => 'required'
+            'title' => 'required|string|max:255',
+            'description' => 'required|string',
+            'mode' => 'required|string|in:standard,focused',
+            'skill_tag_ids' => 'array',
+            'skill_tag_ids.*' => 'exists:skill_tags,id'
         ]);
 
         $quiz = Quiz::create([
@@ -78,8 +85,13 @@ class QuizController extends Controller
             'total_time' => 0
         ]);
 
-        // Fetch the fresh quiz with relationship
-        $quiz->load('creator');
+        // Attach skill tags if provided
+        if (!empty($validated['skill_tag_ids'])) {
+            $quiz->skillTags()->attach($validated['skill_tag_ids']);
+        }
+
+        // Fetch the fresh quiz with relationships
+        $quiz->load(['creator', 'skillTags']);
 
         // Transform to match your cache structure
         $transformed = [
@@ -91,6 +103,11 @@ class QuizController extends Controller
             'mode' => $quiz->mode,
             'total_score' => $quiz->total_score,
             'total_time' => $quiz->total_time,
+            'skill_tags' => $quiz->skillTags->map(fn($tag) => [
+                'id' => $tag->id,
+                'tag_title' => $tag->tag_title,
+                'description' => $tag->description
+            ]),
             'created_at' => $quiz->created_at,
             'updated_at' => $quiz->updated_at,
         ];
@@ -116,7 +133,7 @@ class QuizController extends Controller
      */
     public function show(Quiz $quiz_management)
     {
-        $quiz = Quiz::with('creator')->where('id', $quiz_management->id)->first();
+        $quiz = Quiz::with(['creator', 'skillTags'])->where('id', $quiz_management->id)->first();
         return Inertia::render('quiz-management/actions/view', [
             'quiz' => $quiz,
         ]);
@@ -127,8 +144,11 @@ class QuizController extends Controller
      */
     public function edit(Quiz $quiz_management)
     {
+        $quiz_management->load('skillTags');
+
         return Inertia::render('quiz-management/actions/edit', [
             'quiz' => $quiz_management,
+            'skillTags' => SkillTags::select('id', 'tag_title', 'description')->get(),
         ]);
     }
 
@@ -139,9 +159,11 @@ class QuizController extends Controller
     {
         $user = Auth::user();
         $validated = $request->validate([
-            'title' => 'required',
-            'description' => 'required',
-            'mode' => 'required'
+            'title' => 'required|string|max:255',
+            'description' => 'required|string',
+            'mode' => 'required|string|in:standard,focused',
+            'skill_tag_ids' => 'array',
+            'skill_tag_ids.*' => 'exists:skill_tags,id'
         ]);
 
         $quiz_management->update([
@@ -150,8 +172,11 @@ class QuizController extends Controller
             'mode' => $validated['mode'],
         ]);
 
-        // Fetch the fresh quiz with relationship
-        $quiz_management->load('creator');
+        // Sync skill tags (this will add new ones and remove old ones)
+        $quiz_management->skillTags()->sync($validated['skill_tag_ids'] ?? []);
+
+        // Fetch the fresh quiz with relationships
+        $quiz_management->load(['creator', 'skillTags']);
 
         // Transform to match your cache structure
         $transformed = [
@@ -163,6 +188,11 @@ class QuizController extends Controller
             'mode' => $quiz_management->mode,
             'total_score' => $quiz_management->total_score,
             'total_time' => $quiz_management->total_time,
+            'skill_tags' => $quiz_management->skillTags->map(fn($tag) => [
+                'id' => $tag->id,
+                'tag_title' => $tag->tag_title,
+                'description' => $tag->description
+            ]),
             'created_at' => $quiz_management->created_at,
             'updated_at' => $quiz_management->updated_at,
         ];
@@ -200,7 +230,7 @@ class QuizController extends Controller
     {
         $user = Auth::user();
 
-        // Delete from database
+        // Delete from database (skill tags will be automatically removed due to cascade)
         $quiz_management->delete();
 
         // Prepare transformed ID for filtering

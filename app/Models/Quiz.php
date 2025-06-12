@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Quiz extends Model
 {
@@ -15,15 +16,23 @@ class Quiz extends Model
         'total_time',
     ];
 
-    public function creator() {
+    protected $casts = [
+        'total_score' => 'integer',
+        'total_time' => 'integer',
+    ];
+
+    public function creator()
+    {
         return $this->belongsTo(User::class, 'user_id');
     }
 
-    public function skillTags() {
-        return $this->belongsToMany(SkillTags::class, 'quiz_tags');
+    public function skillTags(): BelongsToMany
+    {
+        return $this->belongsToMany(SkillTags::class, 'quiz_tags', 'quiz_id', 'skill_tags_id');
     }
 
-    public function questions() {
+    public function questions()
+    {
         return $this->hasMany(QuizQuestion::class);
     }
 }
