@@ -4,9 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\Quiz;
 use App\Models\SkillTags;
+use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 
 class QuizController extends Controller
@@ -76,56 +79,63 @@ class QuizController extends Controller
             'skill_tag_ids.*' => 'exists:skill_tags,id'
         ]);
 
-        $quiz = Quiz::create([
-            'title' => $validated['title'],
-            'description' => $validated['description'],
-            'mode' => $validated['mode'],
-            'user_id' => $user->id,
-            'total_score' => 0,
-            'total_time' => 0
-        ]);
+        try {
+            $transformed = DB::transaction(function () use ($validated, $user) {
+                // Create the quiz
+                $quiz = Quiz::create([
+                    'title' => $validated['title'],
+                    'description' => $validated['description'],
+                    'mode' => $validated['mode'],
+                    'user_id' => $user->id,
+                    'total_score' => 0,
+                    'total_time' => 0
+                ]);
 
-        // Attach skill tags if provided
-        if (!empty($validated['skill_tag_ids'])) {
-            $quiz->skillTags()->attach($validated['skill_tag_ids']);
+                // Attach skill tags if provided
+                if (!empty($validated['skill_tag_ids'])) {
+                    $quiz->skillTags()->attach($validated['skill_tag_ids']);
+                }
+
+                // Fetch the fresh quiz with relationships
+                $quiz->load(['creator', 'skillTags']);
+
+                // Transform to match your cache structure
+                $transformed = [
+                    'id' => $quiz->id,
+                    'user_id' => $quiz->user_id,
+                    'creator' => $quiz->creator,
+                    'title' => $quiz->title,
+                    'description' => $quiz->description,
+                    'mode' => $quiz->mode,
+                    'total_score' => $quiz->total_score,
+                    'total_time' => $quiz->total_time,
+                    'skill_tags' => $quiz->skillTags->map(fn($tag) => [
+                        'id' => $tag->id,
+                        'tag_title' => $tag->tag_title,
+                        'description' => $tag->description
+                    ]),
+                    'created_at' => $quiz->created_at,
+                    'updated_at' => $quiz->updated_at,
+                ];
+
+                // Update cache within transaction for consistency
+                $this->updateCacheAfterStore($user, $transformed);
+
+                return $transformed;
+            });
+
+            return redirect()->route('quiz-management.index')->with('success', 'Quiz created successfully!');
+        } catch (Exception $e) {
+            Log::error('Quiz creation failed', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+                'data' => $validated
+            ]);
+
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Failed to create quiz. Please try again.');
         }
-
-        // Fetch the fresh quiz with relationships
-        $quiz->load(['creator', 'skillTags']);
-
-        // Transform to match your cache structure
-        $transformed = [
-            'id' => $quiz->id,
-            'user_id' => $quiz->user_id,
-            'creator' => $quiz->creator,
-            'title' => $quiz->title,
-            'description' => $quiz->description,
-            'mode' => $quiz->mode,
-            'total_score' => $quiz->total_score,
-            'total_time' => $quiz->total_time,
-            'skill_tags' => $quiz->skillTags->map(fn($tag) => [
-                'id' => $tag->id,
-                'tag_title' => $tag->tag_title,
-                'description' => $tag->description
-            ]),
-            'created_at' => $quiz->created_at,
-            'updated_at' => $quiz->updated_at,
-        ];
-
-        // Write-through cache logic
-        if ($user->hasRole('admin')) {
-            $adminCacheKey = 'quizzes_admin';
-            $adminQuizzes = Cache::get($adminCacheKey, collect());
-            Cache::put($adminCacheKey, $adminQuizzes->push($transformed), 600);
-        }
-
-        if ($user->hasRole('instructor')) {
-            $instructorCacheKey = 'quizzes_instructor_' . $user->id;
-            $instructorQuizzes = Cache::get($instructorCacheKey, collect());
-            Cache::put($instructorCacheKey, $instructorQuizzes->push($transformed), 600);
-        }
-
-        return redirect()->route('quiz-management.index')->with('success', 'Quiz created successfully!');
     }
 
     /**
@@ -166,61 +176,59 @@ class QuizController extends Controller
             'skill_tag_ids.*' => 'exists:skill_tags,id'
         ]);
 
-        $quiz_management->update([
-            'title' => $validated['title'],
-            'description' => $validated['description'],
-            'mode' => $validated['mode'],
-        ]);
+        try {
+            $transformed = DB::transaction(function () use ($validated, $quiz_management, $user) {
+                // Update the quiz
+                $quiz_management->update([
+                    'title' => $validated['title'],
+                    'description' => $validated['description'],
+                    'mode' => $validated['mode'],
+                ]);
 
-        // Sync skill tags (this will add new ones and remove old ones)
-        $quiz_management->skillTags()->sync($validated['skill_tag_ids'] ?? []);
+                // Sync skill tags (this will add new ones and remove old ones)
+                $quiz_management->skillTags()->sync($validated['skill_tag_ids'] ?? []);
 
-        // Fetch the fresh quiz with relationships
-        $quiz_management->load(['creator', 'skillTags']);
+                // Fetch the fresh quiz with relationships
+                $quiz_management->load(['creator', 'skillTags']);
 
-        // Transform to match your cache structure
-        $transformed = [
-            'id' => $quiz_management->id,
-            'user_id' => $quiz_management->user_id,
-            'creator' => $quiz_management->creator,
-            'title' => $quiz_management->title,
-            'description' => $quiz_management->description,
-            'mode' => $quiz_management->mode,
-            'total_score' => $quiz_management->total_score,
-            'total_time' => $quiz_management->total_time,
-            'skill_tags' => $quiz_management->skillTags->map(fn($tag) => [
-                'id' => $tag->id,
-                'tag_title' => $tag->tag_title,
-                'description' => $tag->description
-            ]),
-            'created_at' => $quiz_management->created_at,
-            'updated_at' => $quiz_management->updated_at,
-        ];
+                // Transform to match your cache structure
+                $transformed = [
+                    'id' => $quiz_management->id,
+                    'user_id' => $quiz_management->user_id,
+                    'creator' => $quiz_management->creator,
+                    'title' => $quiz_management->title,
+                    'description' => $quiz_management->description,
+                    'mode' => $quiz_management->mode,
+                    'total_score' => $quiz_management->total_score,
+                    'total_time' => $quiz_management->total_time,
+                    'skill_tags' => $quiz_management->skillTags->map(fn($tag) => [
+                        'id' => $tag->id,
+                        'tag_title' => $tag->tag_title,
+                        'description' => $tag->description
+                    ]),
+                    'created_at' => $quiz_management->created_at,
+                    'updated_at' => $quiz_management->updated_at,
+                ];
 
-        // Write-through cache logic
-        if ($user->hasRole('admin')) {
-            $adminCacheKey = 'quizzes_admin';
-            $adminQuizzes = Cache::get($adminCacheKey, collect());
+                // Update cache within transaction for consistency
+                $this->updateCacheAfterUpdate($user, $transformed);
 
-            $adminQuizzes = $adminQuizzes->map(function ($quiz) use ($transformed) {
-                return $quiz['id'] === $transformed['id'] ? $transformed : $quiz;
+                return $transformed;
             });
 
-            Cache::put($adminCacheKey, $adminQuizzes, 600);
+            return redirect()->route('quiz-management.index')->with('success', 'Quiz updated successfully!');
+        } catch (Exception $e) {
+            Log::error('Quiz update failed', [
+                'quiz_id' => $quiz_management->id,
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+                'data' => $validated
+            ]);
+
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Failed to update quiz. Please try again.');
         }
-
-        if ($user->hasRole('instructor')) {
-            $instructorCacheKey = 'quizzes_instructor_' . $user->id;
-            $instructorQuizzes = Cache::get($instructorCacheKey, collect());
-
-            $instructorQuizzes = $instructorQuizzes->map(function ($quiz) use ($transformed) {
-                return $quiz['id'] === $transformed['id'] ? $transformed : $quiz;
-            });
-
-            Cache::put($instructorCacheKey, $instructorQuizzes, 600);
-        }
-
-        return redirect()->route('quiz-management.index')->with('success', 'Quiz updated successfully!');
     }
 
     /**
@@ -229,29 +237,136 @@ class QuizController extends Controller
     public function destroy(Quiz $quiz_management)
     {
         $user = Auth::user();
-
-        // Delete from database (skill tags will be automatically removed due to cascade)
-        $quiz_management->delete();
-
-        // Prepare transformed ID for filtering
         $quizId = $quiz_management->id;
 
-        // Admin cache
-        if ($user->hasRole('admin')) {
-            $adminCacheKey = 'quizzes_admin';
-            $adminQuizzes = Cache::get($adminCacheKey, collect());
-            $filteredAdminQuizzes = $adminQuizzes->reject(fn($quiz) => $quiz['id'] == $quizId);
-            Cache::put($adminCacheKey, $filteredAdminQuizzes, 600);
-        }
+        try {
+            DB::transaction(function () use ($quiz_management, $user, $quizId) {
+                // Delete from database (skill tags will be automatically removed due to cascade)
+                $quiz_management->delete();
 
-        // Instructor cache
-        if ($user->hasRole('instructor')) {
-            $instructorCacheKey = 'quizzes_instructor_' . $user->id;
-            $instructorQuizzes = Cache::get($instructorCacheKey, collect());
-            $filteredInstructorQuizzes = $instructorQuizzes->reject(fn($quiz) => $quiz['id'] == $quizId);
-            Cache::put($instructorCacheKey, $filteredInstructorQuizzes, 600);
-        }
+                // Update cache within transaction for consistency
+                $this->updateCacheAfterDelete($user, $quizId);
+            });
 
-        return redirect()->route('quiz-management.index')->with('success', 'Quiz deleted successfully!');
+            return redirect()->route('quiz-management.index')->with('success', 'Quiz deleted successfully!');
+        } catch (Exception $e) {
+            Log::error('Quiz deletion failed', [
+                'quiz_id' => $quizId,
+                'user_id' => $user->id,
+                'error' => $e->getMessage()
+            ]);
+
+            return redirect()->back()
+                ->with('error', 'Failed to delete quiz. Please try again.');
+        }
+    }
+
+    private function updateCacheAfterStore($user, $transformed)
+    {
+        try {
+            if ($user->hasRole('admin')) {
+                $adminCacheKey = 'quizzes_admin';
+                $adminQuizzes = Cache::get($adminCacheKey, collect());
+                Cache::put($adminCacheKey, $adminQuizzes->push($transformed), 600);
+            }
+
+            if ($user->hasRole('instructor')) {
+                $instructorCacheKey = 'quizzes_instructor_' . $user->id;
+                $instructorQuizzes = Cache::get($instructorCacheKey, collect());
+                Cache::put($instructorCacheKey, $instructorQuizzes->push($transformed), 600);
+            }
+        } catch (Exception $e) {
+            // Log cache errors but don't fail the transaction
+            Log::warning('Cache update failed after quiz creation', [
+                'quiz_id' => $transformed['id'],
+                'error' => $e->getMessage()
+            ]);
+
+            // Optionally clear the cache to maintain consistency
+            $this->clearUserCaches($user);
+        }
+    }
+
+    private function updateCacheAfterUpdate($user, $transformed)
+    {
+        try {
+            if ($user->hasRole('admin')) {
+                $adminCacheKey = 'quizzes_admin';
+                $adminQuizzes = Cache::get($adminCacheKey, collect());
+
+                $adminQuizzes = $adminQuizzes->map(function ($quiz) use ($transformed) {
+                    return $quiz['id'] === $transformed['id'] ? $transformed : $quiz;
+                });
+
+                Cache::put($adminCacheKey, $adminQuizzes, 600);
+            }
+
+            if ($user->hasRole('instructor')) {
+                $instructorCacheKey = 'quizzes_instructor_' . $user->id;
+                $instructorQuizzes = Cache::get($instructorCacheKey, collect());
+
+                $instructorQuizzes = $instructorQuizzes->map(function ($quiz) use ($transformed) {
+                    return $quiz['id'] === $transformed['id'] ? $transformed : $quiz;
+                });
+
+                Cache::put($instructorCacheKey, $instructorQuizzes, 600);
+            }
+        } catch (Exception $e) {
+            Log::warning('Cache update failed after quiz update', [
+                'quiz_id' => $transformed['id'],
+                'error' => $e->getMessage()
+            ]);
+
+            $this->clearUserCaches($user);
+        }
+    }
+
+    /**
+     * Update cache after deleting a quiz
+     */
+    private function updateCacheAfterDelete($user, $quizId)
+    {
+        try {
+            if ($user->hasRole('admin')) {
+                $adminCacheKey = 'quizzes_admin';
+                $adminQuizzes = Cache::get($adminCacheKey, collect());
+                $filteredAdminQuizzes = $adminQuizzes->reject(fn($quiz) => $quiz['id'] == $quizId);
+                Cache::put($adminCacheKey, $filteredAdminQuizzes, 600);
+            }
+
+            if ($user->hasRole('instructor')) {
+                $instructorCacheKey = 'quizzes_instructor_' . $user->id;
+                $instructorQuizzes = Cache::get($instructorCacheKey, collect());
+                $filteredInstructorQuizzes = $instructorQuizzes->reject(fn($quiz) => $quiz['id'] == $quizId);
+                Cache::put($instructorCacheKey, $filteredInstructorQuizzes, 600);
+            }
+        } catch (Exception $e) {
+            Log::warning('Cache update failed after quiz deletion', [
+                'quiz_id' => $quizId,
+                'error' => $e->getMessage()
+            ]);
+
+            $this->clearUserCaches($user);
+        }
+    }
+
+    /**
+     * Clear user-specific caches in case of cache errors
+     */
+    private function clearUserCaches($user)
+    {
+        try {
+            if ($user->hasRole('admin')) {
+                Cache::forget('quizzes_admin');
+            }
+            if ($user->hasRole('instructor')) {
+                Cache::forget('quizzes_instructor_' . $user->id);
+            }
+        } catch (Exception $e) {
+            Log::error('Failed to clear user caches', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

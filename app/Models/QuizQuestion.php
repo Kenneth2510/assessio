@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class QuizQuestion extends Model
 {
@@ -15,12 +16,24 @@ class QuizQuestion extends Model
         'isRequired',
     ];
 
+    protected $casts = [
+        'score' => 'integer',
+        'time' => 'integer',
+        'isRequired' => 'boolean',
+    ];
 
-    public function quiz () {
+    public function quiz()
+    {
         return $this->belongsTo(Quiz::class, 'quiz_id');
     }
 
-    public function choices () {
+    public function choices()
+    {
         return $this->hasMany(QuizQuestionChoices::class);
+    }
+
+    public function participationAnswers(): HasMany
+    {
+        return $this->hasMany(QuizParticipationAnswer::class);
     }
 }

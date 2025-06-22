@@ -166,7 +166,7 @@ export default function ViewQuiz({ quiz }: ViewQuizProps) {
                                 </Button>
 
                                 <Button className="w-full bg-blue-500 text-sm text-white hover:bg-blue-600" asChild>
-                                    <Link href={route('quiz-management.index')}>Enter Quiz Analytics</Link>
+                                    <Link href={route('quiz.analytics', quiz.id)}>Enter Quiz Analytics</Link>
                                 </Button>
 
                                 <Button className="w-full bg-amber-500 text-sm text-white hover:bg-amber-600" asChild>

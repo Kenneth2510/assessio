@@ -12,7 +12,9 @@ class QuizQuestionChoices extends Model
         'isCorrect'
     ];
 
-    public function question () {
+
+    public function question()
+    {
         return $this->belongsTo(QuizQuestion::class, 'quiz_question_id');
     }
 }

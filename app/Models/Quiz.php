@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Quiz extends Model
 {
@@ -34,5 +35,15 @@ class Quiz extends Model
     public function questions()
     {
         return $this->hasMany(QuizQuestion::class);
+    }
+
+    public function quizParticipations(): HasMany
+    {
+        return $this->hasMany(QuizParticipation::class);
+    }
+
+    public function getTotalPossibleScoreAttribute()
+    {
+        return $this->questions()->sum('score') ?: $this->questions()->count();
     }
 }

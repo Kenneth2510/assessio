@@ -103,14 +103,14 @@ export default function QuizQuestionViewer({ question, answer, onAnswer }: Props
                                     className="space-y-3"
                                 >
                                     {question.choices.map((choice, idx) => (
-                                        <div key={idx} className="flex items-start space-x-3 p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors">
+                                        <div key={`${question.id}-choice-${idx}`} className="flex items-start space-x-3 p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors">
                                             <RadioGroupItem
                                                 value={choice.choice}
-                                                id={`option-${idx}`}
+                                                id={`${question.id}-option-${idx}`}
                                                 className="mt-0.5 border-blue-500 text-blue-600"
                                             />
                                             <Label
-                                                htmlFor={`option-${idx}`}
+                                                htmlFor={`${question.id}-option-${idx}`}
                                                 className="flex-1 text-sm text-gray-800 leading-relaxed cursor-pointer"
                                             >
                                                 {choice.choice}
@@ -127,29 +127,33 @@ export default function QuizQuestionViewer({ question, answer, onAnswer }: Props
                                     Select all that apply:
                                 </Label>
                                 <div className="space-y-3">
-                                    {question.choices.map((choice, idx) => (
-                                        <div key={idx} className="flex items-start space-x-3 p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors">
-                                            <Checkbox
-                                                id={`checkbox-${idx}`}
-                                                className="mt-0.5 border-blue-500 text-blue-600"
-                                                checked={Array.isArray(localAnswer) ? localAnswer.includes(choice.choice) : false}
-                                                onCheckedChange={(checked) => {
-                                                    const currentAnswers = localAnswer || [];
-                                                    if (checked) {
-                                                        handleAnswerChange([...currentAnswers, choice.choice]);
-                                                    } else {
-                                                        handleAnswerChange(currentAnswers.filter((a: string) => a !== choice.choice));
-                                                    }
-                                                }}
-                                            />
-                                            <Label
-                                                htmlFor={`checkbox-${idx}`}
-                                                className="flex-1 text-sm text-gray-800 leading-relaxed cursor-pointer"
-                                            >
-                                                {choice.choice}
-                                            </Label>
-                                        </div>
-                                    ))}
+                                    {question.choices.map((choice, idx) => {
+                                        const currentAnswers = Array.isArray(localAnswer) ? localAnswer : [];
+                                        const isChecked = currentAnswers.includes(choice.choice);
+
+                                        return (
+                                            <div key={`${question.id}-checkbox-${idx}`} className="flex items-start space-x-3 p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors">
+                                                <Checkbox
+                                                    id={`${question.id}-checkbox-${idx}`}
+                                                    className="mt-0.5 border-blue-500 text-blue-600"
+                                                    checked={isChecked}
+                                                    onCheckedChange={(checked) => {
+                                                        if (checked) {
+                                                            handleAnswerChange([...currentAnswers, choice.choice]);
+                                                        } else {
+                                                            handleAnswerChange(currentAnswers.filter((a: string) => a !== choice.choice));
+                                                        }
+                                                    }}
+                                                />
+                                                <Label
+                                                    htmlFor={`${question.id}-checkbox-${idx}`}
+                                                    className="flex-1 text-sm text-gray-800 leading-relaxed cursor-pointer"
+                                                >
+                                                    {choice.choice}
+                                                </Label>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                                 {Array.isArray(localAnswer) && localAnswer.length > 0 && (
                                     <div className="text-xs text-gray-500 mt-2">

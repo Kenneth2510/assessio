@@ -185,7 +185,7 @@ export default function QuizParticipationAccessIndex({
                                                     className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
                                                     asChild
                                                 >
-                                                    <a href={`/quiz-result/${attempt.id}`} className="flex items-center justify-center gap-1">
+                                                    <a href={`/quiz-results/${attempt.id}`} className="flex items-center justify-center gap-1">
                                                         <Eye className="h-3 w-3" />
                                                         View Results
                                                     </a>

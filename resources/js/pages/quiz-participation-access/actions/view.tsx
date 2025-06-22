@@ -324,7 +324,7 @@ export default function ViewQuiz({
                                                             className="text-blue-600 border-blue-200 hover:bg-blue-50"
                                                             asChild
                                                         >
-                                                            <Link href={`/quiz-result/${attempt.id}`}>
+                                                            <Link href={`/quiz-results/${attempt.id}`}>
                                                                 <Eye className="h-3 w-3 mr-1" />
                                                                 View
                                                             </Link>
@@ -378,7 +378,7 @@ export default function ViewQuiz({
                                                 className="w-full bg-blue-600 text-white hover:bg-blue-700"
                                                 asChild
                                             >
-                                                <Link href={`/quiz-result/${latestAttempt.id}`} className="flex items-center justify-center gap-2">
+                                                <Link href={`/quiz-results/${latestAttempt.id}`} className="flex items-center justify-center gap-2">
                                                     <Eye className="h-4 w-4" />
                                                     View Detailed Results
                                                 </Link>

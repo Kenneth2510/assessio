@@ -15,6 +15,12 @@ class QuizParticipation extends Model
         'status',
     ];
 
+    protected $casts = [
+        'total_score' => 'integer',
+        'xp_earned' => 'integer',
+        'time_taken' => 'integer',
+    ];
+
     public function user()
     {
         return $this->belongsTo(User::class);

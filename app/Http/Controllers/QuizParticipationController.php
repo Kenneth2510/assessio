@@ -183,6 +183,9 @@ class QuizParticipationController extends Controller
                 Cache::forget("quizzes_available_user_{$userId}");
                 Cache::put("quiz_participation_score_{$participation->id}", $totalScore, 60);
 
+                // Clear analytics cache to ensure real-time updates for instructors/admins
+                Cache::forget("quiz_analytics_{$request->quiz_id}");
+
                 // Calculate percentage
                 $maxPossibleScore = $quiz->questions->sum(fn($q) => $q->score ?? 1);
                 $percentage = $maxPossibleScore > 0 ? round(($totalScore / $maxPossibleScore) * 100, 1) : 0;
@@ -409,6 +412,321 @@ class QuizParticipationController extends Controller
         ));
 
         return $breakdown;
+    }
+
+    public function showResults(Request $request, $participationId = null)
+    {
+        $userId = Auth::id();
+
+        // If no specific participation ID is provided, get the latest participation for the user
+        if (!$participationId) {
+            $participationId = $request->query('participation_id');
+        }
+
+        if (!$participationId) {
+            return back()->withErrors(['error' => 'No quiz participation found.']);
+        }
+
+        try {
+            // Get participation with related data
+            $participation = QuizParticipation::with([
+                'quiz.questions.choices',
+                'answers.question.choices',
+                'user'
+            ])
+                ->where('id', $participationId)
+                ->where('user_id', $userId) // Ensure user can only view their own results
+                ->firstOrFail();
+
+            $quiz = $participation->quiz;
+            $questions = $quiz->questions;
+            $userAnswers = $participation->answers;
+
+            // Calculate detailed results
+            $results = [
+                'participation_id' => $participation->id,
+                'quiz_title' => $quiz->title,
+                'quiz_description' => $quiz->description,
+                'total_score' => $participation->total_score,
+                'max_possible_score' => $quiz->questions->sum(fn($q) => $q->score ?? 1),
+                'xp_earned' => $participation->xp_earned,
+                'time_taken' => $participation->time_taken,
+                'quiz_time_limit' => $quiz->total_time,
+                'completed_at' => $participation->completed_at,
+                'status' => $participation->status,
+                'total_questions' => $questions->count(),
+                'correct_answers' => 0,
+                'incorrect_answers' => 0,
+                'unanswered_questions' => 0,
+            ];
+
+            // Calculate percentage
+            $results['percentage'] = $results['max_possible_score'] > 0
+                ? round(($results['total_score'] / $results['max_possible_score']) * 100, 1)
+                : 0;
+
+            // Process each question and answer
+            $questionResults = [];
+
+            foreach ($questions as $question) {
+                $userAnswer = $userAnswers->where('quiz_question_id', $question->id)->first();
+
+                $questionResult = [
+                    'question_id' => $question->id,
+                    'question_text' => $question->question,
+                    'question_type' => $question->question_type,
+                    'question_score' => $question->score ?? 1,
+                    'user_answer' => null,
+                    'user_answer_display' => null,
+                    'correct_answer' => null,
+                    'correct_answer_display' => null,
+                    'is_correct' => false,
+                    'points_earned' => 0,
+                    'choices' => $question->choices ? $question->choices->map(fn($c) => [
+                        'choice' => $c->choice,
+                        'is_correct' => $c->isCorrect
+                    ])->toArray() : [],
+                ];
+
+                // Get correct answers based on question type
+                switch ($question->question_type) {
+                    case 'multiple_choice':
+                        $correctChoice = $question->choices->where('isCorrect', 1)->first();
+                        $questionResult['correct_answer'] = $correctChoice ? $correctChoice->choice : null;
+                        $questionResult['correct_answer_display'] = $correctChoice ? $correctChoice->choice : 'No correct answer set';
+                        break;
+
+                    case 'checkbox':
+                        $correctChoices = $question->choices->where('isCorrect', 1)->pluck('choice')->toArray();
+                        $questionResult['correct_answer'] = $correctChoices;
+                        $questionResult['correct_answer_display'] = !empty($correctChoices)
+                            ? implode(', ', $correctChoices)
+                            : 'No correct answers set';
+                        break;
+
+                    case 'identification':
+                        $correctAnswers = $question->choices->where('isCorrect', 1)->pluck('choice')->toArray();
+                        $questionResult['correct_answer'] = $correctAnswers;
+                        $questionResult['correct_answer_display'] = !empty($correctAnswers)
+                            ? implode(' / ', $correctAnswers)
+                            : 'No correct answer set';
+                        break;
+                }
+
+                // Process user answer if exists
+                if ($userAnswer) {
+                    $questionResult['user_answer'] = $userAnswer->answer;
+                    $questionResult['is_correct'] = $userAnswer->isCorrect == 1;
+
+                    // Format user answer for display
+                    if ($question->question_type === 'checkbox') {
+                        $userAnswerArray = is_string($userAnswer->answer)
+                            ? json_decode($userAnswer->answer, true)
+                            : $userAnswer->answer;
+                        $questionResult['user_answer_display'] = is_array($userAnswerArray)
+                            ? implode(', ', $userAnswerArray)
+                            : $userAnswer->answer;
+                    } else {
+                        $questionResult['user_answer_display'] = $userAnswer->answer;
+                    }
+
+                    // Calculate points earned
+                    if ($questionResult['is_correct']) {
+                        $questionResult['points_earned'] = $question->score ?? 1;
+                        $results['correct_answers']++;
+                    } else {
+                        $results['incorrect_answers']++;
+                    }
+                } else {
+                    // Question was not answered
+                    $questionResult['user_answer_display'] = 'Not answered';
+                    $results['unanswered_questions']++;
+                }
+
+                $questionResults[] = $questionResult;
+            }
+
+            // Get XP breakdown if needed
+            $xpBreakdown = $this->getXpBreakdown(
+                $quiz->id,
+                $results['total_score'],
+                $results['correct_answers'],
+                $results['total_questions']
+            );
+
+            // Performance analysis
+            $performance = [
+                'grade' => $this->calculateGrade($results['percentage']),
+                'performance_level' => $this->getPerformanceLevel($results['percentage']),
+                'strengths' => [],
+                'areas_for_improvement' => [],
+            ];
+
+            // Analyze performance by question type
+            $typeAnalysis = [];
+            foreach (['multiple_choice', 'checkbox', 'identification'] as $type) {
+                $typeQuestions = collect($questionResults)->where('question_type', $type);
+                if ($typeQuestions->count() > 0) {
+                    $typeCorrect = $typeQuestions->where('is_correct', true)->count();
+                    $typeTotal = $typeQuestions->count();
+                    $typePercentage = round(($typeCorrect / $typeTotal) * 100, 1);
+
+                    $typeAnalysis[$type] = [
+                        'total' => $typeTotal,
+                        'correct' => $typeCorrect,
+                        'percentage' => $typePercentage,
+                        'type_label' => ucfirst(str_replace('_', ' ', $type))
+                    ];
+
+                    if ($typePercentage >= 80) {
+                        $performance['strengths'][] = $typeAnalysis[$type]['type_label'];
+                    } elseif ($typePercentage < 60) {
+                        $performance['areas_for_improvement'][] = $typeAnalysis[$type]['type_label'];
+                    }
+                }
+            }
+
+            // Check if this is the user's best attempt (for future implementations)
+            $previousAttempts = QuizParticipation::where('user_id', $userId)
+                ->where('quiz_id', $quiz->id)
+                ->where('id', '!=', $participation->id)
+                ->count();
+
+            return Inertia::render('quiz-results/QuizResults', [
+                'results' => $results,
+                'questions' => $questionResults,
+                'performance' => $performance,
+                'type_analysis' => $typeAnalysis,
+                'xp_breakdown' => $xpBreakdown,
+                'quiz' => [
+                    'id' => $quiz->id,
+                    'title' => $quiz->title,
+                    'description' => $quiz->description,
+                    'total_time' => $quiz->total_time,
+                    'mode' => $quiz->mode,
+                ],
+                'is_first_attempt' => $previousAttempts === 0,
+                'can_retake' => false, // Set based on your business logic
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error displaying quiz results: ' . $e->getMessage(), [
+                'user_id' => $userId,
+                'participation_id' => $participationId,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return back()->withErrors(['error' => 'Unable to load quiz results. Please try again.']);
+        }
+    }
+
+    /**
+     * Get all quiz results for the authenticated user
+     */
+    public function userResults(Request $request)
+    {
+        $userId = Auth::id();
+        $perPage = $request->get('per_page', 10);
+
+        try {
+            $participations = QuizParticipation::with(['quiz'])
+                ->where('user_id', $userId)
+                ->orderBy('completed_at', 'desc')
+                ->paginate($perPage);
+
+            $results = $participations->through(function ($participation) {
+                $maxPossibleScore = $participation->quiz->questions()->sum('score') ?: $participation->quiz->questions()->count();
+                $percentage = $maxPossibleScore > 0
+                    ? round(($participation->total_score / $maxPossibleScore) * 100, 1)
+                    : 0;
+
+                return [
+                    'id' => $participation->id,
+                    'quiz_title' => $participation->quiz->title,
+                    'quiz_id' => $participation->quiz->id,
+                    'total_score' => $participation->total_score,
+                    'max_possible_score' => $maxPossibleScore,
+                    'percentage' => $percentage,
+                    'xp_earned' => $participation->xp_earned,
+                    'time_taken' => $participation->time_taken,
+                    'completed_at' => $participation->completed_at,
+                    'status' => $participation->status,
+                    'grade' => $this->calculateGrade($percentage),
+                ];
+            });
+
+            return Inertia::render('quiz-results/index', [
+                'results' => $results,
+                'stats' => [
+                    'total_quizzes_taken' => $participations->total(),
+                    'average_score' => $participations->avg('total_score'),
+                    'total_xp_earned' => $participations->sum('xp_earned'),
+                    'best_score' => $participations->max('total_score'),
+                ]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error fetching user quiz results: ' . $e->getMessage(), [
+                'user_id' => $userId,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return back()->withErrors(['error' => 'Unable to load your quiz history. Please try again.']);
+        }
+    }
+
+    /**
+     * Calculate letter grade based on percentage
+     */
+    private function calculateGrade($percentage)
+    {
+        if ($percentage >= 97) return 'A+';
+        if ($percentage >= 93) return 'A';
+        if ($percentage >= 90) return 'A-';
+        if ($percentage >= 87) return 'B+';
+        if ($percentage >= 83) return 'B';
+        if ($percentage >= 80) return 'B-';
+        if ($percentage >= 77) return 'C+';
+        if ($percentage >= 73) return 'C';
+        if ($percentage >= 70) return 'C-';
+        if ($percentage >= 67) return 'D+';
+        if ($percentage >= 65) return 'D';
+        return 'F';
+    }
+
+    /**
+     * Get performance level description
+     */
+    private function getPerformanceLevel($percentage)
+    {
+        if ($percentage >= 90) return 'Excellent';
+        if ($percentage >= 80) return 'Good';
+        if ($percentage >= 70) return 'Satisfactory';
+        if ($percentage >= 60) return 'Needs Improvement';
+        return 'Poor';
+    }
+
+    /**
+     * Export quiz results to PDF (optional feature)
+     */
+    public function exportResults($participationId)
+    {
+        // This would integrate with a PDF library like DomPDF or TCPDF
+        // Implementation depends on your PDF requirements
+
+        $userId = Auth::id();
+
+        $participation = QuizParticipation::with([
+            'quiz.questions.choices',
+            'answers.question.choices',
+            'user'
+        ])
+            ->where('id', $participationId)
+            ->where('user_id', $userId)
+            ->firstOrFail();
+
+        // Generate PDF logic here
+        // Return PDF download response
+
+        return response()->json(['message' => 'PDF export feature coming soon']);
     }
 
     /**
